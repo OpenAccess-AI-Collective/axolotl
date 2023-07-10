@@ -119,6 +119,16 @@ def load_model(
 
         # Note: This might overwrite previous additional_special_tokens
         tokenizer.add_special_tokens({"additional_special_tokens": [MEM_TOKEN]})
+    elif cfg.is_llama_derived_model and cfg.ntk_scaled:
+        from axolotl.monkeypatch.llama_ntk_scaled_init import (
+            replace_llama_rope_init_with_ntk_scaled_init,
+        )
+
+        logging.info("patching with ntk scaled and increasing sequence length to 16384")
+        replace_llama_rope_init_with_ntk_scaled_init()
+
+        cfg.sequence_length = 16384
+        tokenizer.model_max_length = 16384
 
     if cfg.is_llama_derived_model and cfg.xpos_rope:
         from axolotl.monkeypatch.xpos_rope_llama_monkey_patch import (
