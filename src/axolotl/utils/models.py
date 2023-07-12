@@ -119,6 +119,17 @@ def load_model(
 
         # Note: This might overwrite previous additional_special_tokens
         tokenizer.add_special_tokens({"additional_special_tokens": [MEM_TOKEN]})
+    elif cfg.is_llama_derived_model and cfg.scaled_rope:
+        from axolotl.monkeypatch.llama_scaled_rope import (
+            replace_llama_rope_with_scaled_rope,
+        )
+
+        logging.info("patching with scaled_rope")
+        replace_llama_rope_with_scaled_rope()
+
+        logging.info("setting length to 8192")
+        cfg.sequence_len = 8192
+        tokenizer.model_max_length = 8192
 
     if cfg.is_llama_derived_model and cfg.xpos_rope:
         from axolotl.monkeypatch.xpos_rope_llama_monkey_patch import (

@@ -459,6 +459,8 @@ landmark_attention:
 # xpos RoPE see https://github.com/kaiokendev/cutoff-len-is-context-len/blob/main/util/xpos_rope_llama_monkey_patch.py
 # llama only
 xpos_rope:
+# Scaled Rope see https://kaiokendev.github.io/til
+scaled_rope:
 
 # resume from a specific checkpoint dir
 resume_from_checkpoint:
