@@ -4,11 +4,11 @@ import unittest
 from pathlib import Path
 
 from datasets import Dataset, load_dataset
+from rathe import AlpacaPromptFormatter, GenericInstructParser
+from rathe.pipeline import DataPipeline
 from transformers import AutoTokenizer
 
-from axolotl.datasets import ConstantLengthDataset, TokenizedPromptDataset
-from axolotl.prompt_tokenizers import AlpacaPromptTokenizingStrategy
-from axolotl.prompters import AlpacaPrompter
+from axolotl.datasets import ConstantLengthDataset
 
 
 class TestPacking(unittest.TestCase):
@@ -28,22 +28,18 @@ class TestPacking(unittest.TestCase):
         )
 
     def test_resets_attention(self):
-        prompter = AlpacaPrompter("chat")
-        strat = AlpacaPromptTokenizingStrategy(
-            prompter,
-            self.tokenizer,
-            False,
-            2048,
-        )
-        dateset = load_dataset(
+        formatter = AlpacaPromptFormatter()
+        parser = GenericInstructParser.alpaca()
+
+        dataset = load_dataset(
             "json",
             data_files=str(Path(__file__).parent / "fixtures/alpaca/alpaca.json"),
         )["train"]
-        dataset = Dataset.from_list(list(TokenizedPromptDataset(strat, dateset)))
+        tokenized = dataset.map(DataPipeline(parser, formatter, self.tokenizer))
 
         constant_len_dataset = ConstantLengthDataset(
             self.tokenizer,
-            [dataset],
+            [tokenized],
             seq_length=2048,
         )
         packed_dataset = Dataset.from_list(list(constant_len_dataset))
