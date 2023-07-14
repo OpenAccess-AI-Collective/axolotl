@@ -6,43 +6,11 @@ from typing import List
 import torch
 from datasets import IterableDataset
 
-from .prompt_tokenizers import InvalidDataException, PromptTokenizingStrategy
-
 # We want this to be a wrapper for an existing dataset that we have loaded
 # lets use the concept of middlewares to wrap each dataset, for example
 # ConstantLengthDataset(ShuffledDataset([TokenizedPromptDataset(alpaca_dataset)]))
 # let's check to ensure we don't truncate an item in the middle, we'll use
 # the collators later on to pad the datasets
-
-
-class TokenizedPromptDataset(IterableDataset):
-    """
-    Iterable dataset that returns tokenized prompts from a stream of text files.
-        Args:
-            prompt_tokenizer (PromptTokenizingStrategy): The prompt tokenizing method for proccessing the data.
-            dataset (dataset.Dataset): Dataset with text files.
-    """
-
-    def __init__(  # pylint: disable=super-init-not-called
-        self,
-        prompt_tokenizer: PromptTokenizingStrategy,
-        dataset: IterableDataset,
-    ):
-        self.prompt_tokenizer = prompt_tokenizer
-        self.dataset = dataset
-
-    def __iter__(self):
-        iterator = iter(self.dataset)
-        count = 0
-        # Loop through the entire dataset
-        for example in iterator:
-            try:
-                yield self.prompt_tokenizer.tokenize_prompt(example)
-                count += 1
-            except InvalidDataException:
-                pass
-        if count == 0:
-            raise RuntimeError("Expected at least one datapoint in dataset.")
 
 
 # TODO this isn't the best since it can't interleave datasets

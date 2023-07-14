@@ -3,37 +3,22 @@ import functools
 import logging
 from hashlib import md5
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 import torch
-from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
+from datasets import (
+    Dataset,
+    DatasetDict,
+    concatenate_datasets,
+    load_dataset,
+    load_from_disk,
+)
 from huggingface_hub import hf_hub_download
+from rathe import TokenizationOptions, get_formatter, get_parser
+from rathe.pipeline import DataPipeline
 from transformers import PreTrainedTokenizerBase
 
-from axolotl.datasets import ConstantLengthDataset, TokenizedPromptDataset
-from axolotl.prompt_strategies import load
-from axolotl.prompt_tokenizers import (
-    AlpacaMultipleChoicePromptTokenizingStrategy,
-    AlpacaPromptTokenizingStrategy,
-    AlpacaReflectionPTStrategy,
-    CompletionPromptTokenizingStrategy,
-    GPTeacherPromptTokenizingStrategy,
-    JeopardyPromptTokenizingStrategy,
-    OpenAssistantPromptTokenizingStrategy,
-    ShareGPTPromptTokenizingStrategy,
-    SummarizeTLDRPromptTokenizingStrategy,
-)
-from axolotl.prompters import (
-    AlpacaPrompter,
-    CompletionPrompter,
-    GPTeacherPrompter,
-    JeopardyPrompter,
-    MultipleChoiceConcisePrompter,
-    MultipleChoiceExplainPrompter,
-    ReflectAlpacaPrompter,
-    ShareGPTPrompter,
-    SummarizeTLDRPrompter,
-)
+from axolotl.datasets import ConstantLengthDataset
 
 
 def load_tokenized_prepared_datasets(
@@ -78,13 +63,16 @@ def load_tokenized_prepared_datasets(
         logging.info("Prepared dataset loaded from disk...")
     else:
         logging.info(f"Unable to find prepared dataset in {prepared_ds_path}")
-        logging.info("Loading raw datasets...")
+        logging.info("Loading and tokenizing raw datasets...")
 
         if cfg.seed:
             seed = cfg.seed
         else:
             logging.info("No seed provided, using default seed of 42")
             seed = 42
+
+        prompt_format = cfg.prompt_format if cfg.prompt_format else "alpaca"
+        formatter = get_formatter(prompt_format)
 
         datasets = []
         # pylint: disable=invalid-name
@@ -122,6 +110,10 @@ def load_tokenized_prepared_datasets(
                     raise ValueError(
                         "unhandled dataset load: local path exists, but is neither a directory or a file"
                     )
+            if Path(d.path).exists():
+                ds = load_dataset(
+                    d.path, data_files=d.data_files, streaming=False, split=None
+                )
             elif ds_from_hub:
                 if d.data_files:
                     ds = load_dataset(
@@ -145,129 +137,30 @@ def load_tokenized_prepared_datasets(
                 ds = load_dataset("json", data_files=fp, streaming=False, split=None)
             if not ds:
                 raise ValueError("unhandled dataset load")
-            # support for using a subset of the data
-            if d.shards:
-                if "train" in ds:
-                    ds = ds.shuffle(seed=seed)["train"].shard(
-                        num_shards=d.shards, index=0
-                    )
-                else:
-                    ds = ds.shuffle(seed=seed).shard(num_shards=d.shards, index=0)
-            d_type = d.type
-            d_type_split = d_type.split(":")
-            d_base_type = d_type_split[0]
-            d_prompt_style = d_type_split[1] if len(d_type_split) > 1 else None
+
             if "train" in ds:
                 ds = ds["train"]
-            if ds_strategy := load(d.type, tokenizer, cfg):
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "alpaca":
-                ds_strategy = AlpacaPromptTokenizingStrategy(
-                    AlpacaPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "explainchoice":
-                ds_strategy = AlpacaMultipleChoicePromptTokenizingStrategy(
-                    MultipleChoiceExplainPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "concisechoice":
-                ds_strategy = AlpacaMultipleChoicePromptTokenizingStrategy(
-                    MultipleChoiceConcisePrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "summarizetldr":
-                ds_strategy = SummarizeTLDRPromptTokenizingStrategy(
-                    SummarizeTLDRPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "jeopardy":
-                ds_strategy = JeopardyPromptTokenizingStrategy(
-                    JeopardyPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "oasst":
-                ds_strategy = OpenAssistantPromptTokenizingStrategy(
-                    AlpacaPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "gpteacher":
-                ds_strategy = GPTeacherPromptTokenizingStrategy(
-                    GPTeacherPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "reflection":
-                ds_strategy = AlpacaReflectionPTStrategy(
-                    ReflectAlpacaPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "sharegpt":
-                ds_strategy = ShareGPTPromptTokenizingStrategy(
-                    ShareGPTPrompter(d_prompt_style),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            elif d_base_type == "completion":
-                ds_strategy = CompletionPromptTokenizingStrategy(
-                    CompletionPrompter(),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
-            else:
-                suffix = ""
-                if ":load_" in d.type:
-                    suffix = f" Did you mean {d.type.replace(':load_', '.load_')}?"
-                logging.error(
-                    f"unhandled prompt tokenization strategy: {d.type}. {suffix}"
-                )
-                raise ValueError(
-                    f"unhandled prompt tokenization strategy: {d.type} {suffix}"
-                )
-        logging.info("tokenizing, merging, and shuffling master dataset")
 
-        samples: List[int] = []
-        for d in datasets:
-            samples = samples + list(d)
-        dataset = Dataset.from_list(samples).shuffle(seed=seed)
+            # support for using a subset of the data
+            if d.shards:
+                ds = ds.shuffle(seed=seed).shard(num_shards=d.shards, index=0)
+
+            parser = get_parser(d.type)
+            ds_formatter = formatter
+            if d.prompt_style:
+                ds_formatter = get_formatter(d.prompt_format)
+            pipeline = DataPipeline(
+                parser,
+                ds_formatter,
+                tokenizer,
+                options=TokenizationOptions(eos_after_output=True),
+            )
+
+            datasets.append(ds.map(pipeline))
+
+        logging.info("merging and shuffling master dataset")
+        dataset = concatenate_datasets(datasets).shuffle(seed=seed)
+
         if cfg.local_rank == 0:
             logging.info(
                 f"Saving merged prepared dataset to disk... {prepared_ds_path}"
