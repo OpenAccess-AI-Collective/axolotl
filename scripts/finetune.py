@@ -1,6 +1,7 @@
 """Prepare and train a model on a dataset. Can also infer from a model or merge lora"""
 
 import importlib
+import json
 import logging
 import os
 import random
@@ -31,7 +32,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_dir = os.path.join(project_root, "src")
 sys.path.insert(0, src_dir)
 
-configure_logging()
+configure_logging(log_level=os.getenv("LOG_LEVEL", "INFO"))
 LOG = logging.getLogger("axolotl.scripts")
 
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
@@ -125,44 +126,21 @@ def do_inference(cfg, model, tokenizer, prompter: Optional[str]):
         print(tokenizer.decode(generated["sequences"].cpu().tolist()[0]))
 
 
-def choose_config(path: Path):
-    yaml_files = list(path.glob("*.yml"))
-
-    if not yaml_files:
-        raise ValueError(
-            "No YAML config files found in the specified directory. Are you using a .yml extension?"
-        )
-
-    print("Choose a YAML file:")
-    for idx, file in enumerate(yaml_files):
-        print(f"{idx + 1}. {file}")
-
-    chosen_file = None
-    while chosen_file is None:
-        try:
-            choice = int(input("Enter the number of your choice: "))
-            if 1 <= choice <= len(yaml_files):
-                chosen_file = yaml_files[choice - 1]
-            else:
-                print("Invalid choice. Please choose a number from the list.")
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-
-    return chosen_file
-
-
 def check_not_in(list1: List[str], list2: Union[Dict[str, Any], List[str]]) -> bool:
     return not any(el in list2 for el in list1)
 
 
 def train(
-    config: Path = Path("configs/"),
+    config: Union[Path, str] = Path("configs/"),
     prepare_ds_only: bool = False,
     **kwargs,
 ):
     print_axolotl_text_art()
+    config = Path(config) if isinstance(config, str) else config
     if Path(config).is_dir():
-        config = choose_config(config)
+        raise ValueError(
+            f"{config} is a directory, please specify a specific configuration file instead. See: https://github.com/OpenAccess-AI-Collective/axolotl/issues/165"
+        )
 
     # load the config from the yaml file
     with open(config, encoding="utf-8") as file:
@@ -173,11 +151,18 @@ def train(
     for k, _ in kwargs.items():
         # if not strict, allow writing to cfg even if it's not in the yml already
         if k in cfg_keys or not cfg.strict:
+            # Quirk - the configuration file read in is used to specify the type of each setting.
             # handle booleans
             if isinstance(cfg[k], bool):
                 cfg[k] = bool(kwargs[k])
             else:
                 cfg[k] = kwargs[k]
+
+    # When a List[Any] or Dict[Any] get passed in via the CLI, we need to ensure they are wrapped in im a
+    # DictDefault. Without this, dictionary dot expansion will not work properly.
+    cfg = DictDefault(**cfg)
+
+    LOG.debug("Derived configuration:\n%s", json.dumps(cfg, indent=2))
 
     validate_config(cfg)
 
@@ -186,7 +171,8 @@ def train(
     setup_wandb_env_vars(cfg)
 
     # load the tokenizer first
-    LOG.info(f"loading tokenizer... {cfg.tokenizer_config or cfg.base_model_config}")
+    tokenizer_config = cfg.tokenizer_config or cfg.base_model_config
+    LOG.info("loading tokenizer... %s", tokenizer_config)
     tokenizer = load_tokenizer(cfg)
 
     if (
@@ -196,12 +182,17 @@ def train(
 
     if cfg.debug or "debug" in kwargs:
         LOG.info("check_dataset_labels...")
+
+        # Turing off black formatting since it is moving the 'nosec' to the wrong line which caused
+        # bandit flag CWE-330 and fail, also there needs to be 2 spaces before "# nosec".
+        # fmt: off
         check_dataset_labels(
             train_dataset.select(
                 [random.randrange(0, len(train_dataset) - 1) for _ in range(5)]  # nosec
             ),
             tokenizer,
         )
+        # fmt: on
 
     if prepare_ds_only:
         LOG.info("Finished preparing dataset. Exiting...")

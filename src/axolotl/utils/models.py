@@ -24,7 +24,7 @@ from transformers import (  # noqa: F401
 from axolotl.prompt_tokenizers import LLAMA_DEFAULT_PAD_TOKEN
 from axolotl.utils.bench import log_gpu_memory_usage
 
-LOG = logging.getLogger("axolotl")
+LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from peft import PeftConfig  # noqa: F401
@@ -503,7 +503,7 @@ def load_lora(model, cfg):
         model = PeftModel.from_pretrained(
             model,
             cfg.lora_model_dir,
-            is_trainable=not cfg.inference,
+            is_trainable=not cfg.inference or not cfg.batch_eval,
         )
     else:
         model = get_peft_model(model, lora_config)

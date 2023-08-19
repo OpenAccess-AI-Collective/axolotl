@@ -47,7 +47,7 @@ from axolotl.utils.trainer import (
     process_datasets_for_packing,
 )
 
-LOG = logging.getLogger("axolotl")
+LOG = logging.getLogger(__name__)
 DEFAULT_DATASET_PREPARED_PATH = "last_run_prepared"
 
 
@@ -98,20 +98,20 @@ def load_tokenized_prepared_datasets(
             ).encode("utf-8")
         ).hexdigest()
     )
-    prepared_ds_path = (
-        Path(cfg.dataset_prepared_path) / ds_hash
-        if cfg.dataset_prepared_path
-        else Path(default_dataset_prepared_path) / ds_hash
-    )
+    prepared_ds_path = Path(default_dataset_prepared_path) / ds_hash
     dataset = None
     use_auth_token = cfg.hf_use_auth_token
+
+    split_name = cfg.split_name if cfg.split_name else "train"
+    LOG.debug("Using split name: %s", split_name)
+
     try:
         if cfg.push_dataset_to_hub:
             dataset = load_dataset(
                 f"{cfg.push_dataset_to_hub}/{ds_hash}",
                 use_auth_token=use_auth_token,
             )
-            dataset = dataset["train"]
+            dataset = dataset[split_name]
     except Exception:  # pylint: disable=broad-except # nosec
         pass
 
@@ -169,7 +169,7 @@ def load_tokenized_prepared_datasets(
                     )
                 else:
                     raise ValueError(
-                        "unhandled dataset load: local path exists, but is neither a directory or a file"
+                        f"unhandled dataset load: {local_path} exists, but is neither a directory or a file"
                     )
             elif ds_from_hub:
                 ds = load_dataset(
@@ -192,8 +192,8 @@ def load_tokenized_prepared_datasets(
                 raise ValueError("unhandled dataset load")
             # support for using a subset of the data
             if d.shards:
-                if "train" in ds:
-                    ds = ds.shuffle(seed=seed)["train"].shard(
+                if split_name in ds:
+                    ds = ds.shuffle(seed=seed)[split_name].shard(
                         num_shards=d.shards, index=0
                     )
                 else:
@@ -202,8 +202,21 @@ def load_tokenized_prepared_datasets(
             d_type_split = d_type.split(":")
             d_base_type = d_type_split[0]
             d_prompt_style = d_type_split[1] if len(d_type_split) > 1 else None
-            if "train" in ds:
-                ds = ds["train"]
+            if split_name in ds:
+                ds = ds[split_name]
+            if cfg.truncate_features:
+                # Truncate features will set all feature values to an empty string prior to processing via a
+                # prompter. This is useful for inferencing on a dataset that already contains responses as
+                # it isn't desirable for this to be encoded in the response.
+                # {feature: "" for feature in truncate_features}
+                LOG.info(
+                    "Truncating feature prior to processing prompting logic: %s",
+                    cfg.truncate_features,
+                )
+                ds = ds.map(
+                    lambda x: {feature: "" for feature in cfg.truncate_features}
+                )
+
             if ds_strategy := load(d.type, tokenizer, cfg):
                 ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
                 datasets.append(ds_wrapper)
@@ -337,6 +350,9 @@ def load_prepare_datasets(
         max_packed_sequence_len, cfg.sequence_len
     )  # make sure we don't accidentally set it larger than sequence_len
 
+    split_name = cfg.split_name if cfg.split_name else "train"
+    LOG.debug("Using split name: %s", split_name)
+
     tokenizer_name = tokenizer.__class__.__name__
     if cfg.max_packed_sequence_len is not None:
         # see if we can go ahead and load the stacked dataset
@@ -356,11 +372,7 @@ def load_prepare_datasets(
                 ).encode("utf-8")
             ).hexdigest()
         )
-        prepared_ds_path = (
-            Path(cfg.dataset_prepared_path) / ds_hash
-            if cfg.dataset_prepared_path
-            else Path(default_dataset_prepared_path) / ds_hash
-        )
+        prepared_ds_path = Path(default_dataset_prepared_path) / ds_hash
 
         dataset = None
         use_auth_token = cfg.hf_use_auth_token
@@ -373,7 +385,9 @@ def load_prepare_datasets(
                     f"{cfg.push_dataset_to_hub}/{ds_hash}",
                     use_auth_token=use_auth_token,
                 )
-                dataset = dataset["train"]
+                split_name = cfg.split_name if cfg.split_name else "train"
+                LOG.debug("Using split name: %s", split_name)
+                dataset = dataset[split_name]
         except Exception:  # pylint: disable=broad-except # nosec
             pass
 
