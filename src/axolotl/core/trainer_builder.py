@@ -12,15 +12,19 @@ from abc import abstractmethod
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 import transformers
+from accelerate import __version__ as accelerate_version
 from datasets import Dataset
+from packaging import version
+from torch import nn
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, DistributedSampler, SequentialSampler
 from transformers import EarlyStoppingCallback, Trainer, TrainingArguments
 from transformers.trainer_pt_utils import SequentialDistributedSampler
+from transformers.utils import is_sagemaker_mp_enabled
 
 from axolotl.monkeypatch.relora import ReLoRACallback, ReLoRAScheduler
 from axolotl.utils.callbacks import (
@@ -33,6 +37,7 @@ from axolotl.utils.callbacks import (
 )
 from axolotl.utils.collators import DataCollatorForSeq2Seq
 from axolotl.utils.dataloader import MultipackDistributedDataloader
+from axolotl.utils.optimizers import AdaLomo
 from axolotl.utils.schedulers import get_cosine_schedule_with_quadratic_warmup
 
 try:
@@ -115,6 +120,116 @@ class AxolotlTrainer(Trainer):
         self.num_epochs = num_epochs
         self.bench_data_collator = bench_data_collator
         super().__init__(*args, **kwargs)
+
+    def create_optimizer(self):
+        if self.args.optim == "adalomo":
+            opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+            self.optimizer = AdaLomo(  # pylint: disable=attribute-defined-outside-init
+                opt_model,
+                lr=self.args.learning_rate,
+                loss_scale=2**10,
+            )
+            return self.optimizer
+        return super().create_optimizer()
+
+    def training_step(
+        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]
+    ) -> torch.Tensor:
+        if self.args.optim == "adalomo":
+            model.train()
+            inputs = self._prepare_inputs(inputs)
+
+            with self.compute_loss_context_manager():
+                loss = self.compute_loss(model, inputs)
+
+            if self.args.n_gpu > 1:
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+            return loss
+        return super().training_step(model, inputs)
+
+    def _inner_training_step(
+        self,
+        args,
+        tr_loss,
+        epoch,
+        step,
+        inputs,
+        model,
+        steps_in_epoch,
+        total_batched_samples,
+        steps_skipped,
+        trial,
+        ignore_keys_for_eval,
+    ):
+        if self.args.optim == "adalomo":
+            with self.accelerator.accumulate(model):
+                tr_loss = self.training_step(model, inputs)
+            self.current_flos += float(  # pylint: disable=no-member
+                self.floating_point_ops(inputs)
+            )
+            is_last_step_and_steps_less_than_grad_acc = (
+                steps_in_epoch <= args.gradient_accumulation_steps
+                and (step + 1) == steps_in_epoch
+            )
+
+            if (
+                total_batched_samples % args.gradient_accumulation_steps == 0
+                or is_last_step_and_steps_less_than_grad_acc
+                # last step in epoch but step is always smaller than gradient_accumulation_steps
+            ):
+                # the `or` condition of `is_last_step_and_steps_less_than_grad_acc` is not covered
+                # in accelerate. So, explicitly enable sync gradients to True in that case.
+                if is_last_step_and_steps_less_than_grad_acc or (
+                    version.parse(accelerate_version) <= version.parse("0.20.3")
+                ):
+                    self.accelerator.gradient_state._set_sync_gradients(  # pylint: disable=protected-access
+                        True
+                    )
+
+                self.lr_scheduler.step()
+                last_lr = self.lr_scheduler.get_last_lr()[0]
+                # if torch.is_tensor(last_lr):
+                #     last_lr = last_lr.item()
+                self.optimizer.optimizer.fused_backward(tr_loss, last_lr)
+
+                model.zero_grad()
+                self.state.global_step += 1
+                self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                self.control = self.callback_handler.on_step_end(  # pylint: disable=attribute-defined-outside-init
+                    args, self.state, self.control
+                )
+
+                self._maybe_log_save_evaluate(  # pylint: disable=attribute-defined-outside-init
+                    tr_loss, model, trial, epoch, ignore_keys_for_eval
+                )
+            else:
+                self.control = self.callback_handler.on_substep_end(  # pylint: disable=attribute-defined-outside-init
+                    args, self.state, self.control
+                )
+
+            should_stop = False
+            if self.control.should_epoch_stop or self.control.should_training_stop:
+                should_stop = True
+            if self.control.should_log:
+                device = tr_loss.device
+                tr_loss.detach()
+                del tr_loss
+                tr_loss = torch.tensor(0.0, requires_grad=True).to(device)
+
+            return tr_loss, should_stop
+
+        return super()._inner_training_step(
+            args,
+            tr_loss,
+            epoch,
+            step,
+            inputs,
+            model,
+            steps_in_epoch,
+            total_batched_samples,
+            steps_skipped,
+        )
 
     def create_scheduler(
         self, num_training_steps: int, optimizer: torch.optim.Optimizer = None
