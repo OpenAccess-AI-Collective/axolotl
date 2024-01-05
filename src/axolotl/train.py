@@ -187,7 +187,12 @@ def train(
         model.save_pretrained(cfg.output_dir, safe_serialization=safe_serialization)
 
     if not cfg.hub_model_id:
-        trainer.create_model_card(model_name=cfg.output_dir.lstrip("./"))
+        trainer.create_model_card(
+            model_name=cfg.output_dir.lstrip("./"),
+            dataset_tags=[
+                d["path"] for d in cfg["datasets"] if not Path(d["path"]).is_dir()
+            ],
+        )
 
     return model, tokenizer
 
