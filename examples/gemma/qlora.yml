@@ -21,8 +21,8 @@ lora_dropout: 0.05
 lora_target_linear: true
 
 sequence_len: 4096
-sample_packing: false
-pad_to_sequence_len: false
+sample_packing: true
+pad_to_sequence_len: true
 
 wandb_project:
 wandb_entity:
@@ -36,7 +36,7 @@ micro_batch_size: 2
 num_epochs: 4
 optimizer: adamw_bnb_8bit
 lr_scheduler: cosine
-learning_rate: 0.0002
+learning_rate: 5e-5
 
 train_on_inputs: false
 group_by_length: false
