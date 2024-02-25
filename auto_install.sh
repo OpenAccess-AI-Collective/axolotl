@@ -43,12 +43,15 @@ echo "Installing CUDA and PyTorch with dependencies..."
 conda install -y -c "nvidia/label/cuda-12.1.1" cuda --yes
 conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=12.1 -c pytorch -c nvidia --yes
 
+# Change directory to axolotl
+cd axolotl
+
 # Install additional Python packages
 echo "Installing additional Python packages..."
 pip3 install packaging
 pip3 install -e '.[flash-attn,deepspeed]'
 
 pip3 uninstall deepspeed -y
-pip3 install deepspeed==0.13.1 -y
+pip3 install deepspeed==0.13.1
 
 echo "Setup completed successfully.
