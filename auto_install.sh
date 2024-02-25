@@ -54,4 +54,4 @@ pip3 install -e '.[flash-attn,deepspeed]'
 pip3 uninstall deepspeed -y
 pip3 install deepspeed==0.13.1
 
-echo "Setup completed successfully.
+echo "Setup completed successfully."
