@@ -260,6 +260,12 @@ HF_TOKEN=xx sky launch axolotl.yaml --env HF_TOKEN
 HF_TOKEN=xx BUCKET=<unique-name> sky spot launch axolotl-spot.yaml --env HF_TOKEN --env BUCKET
 ```
 
+#### Auto Install the setup
+
+```bash
+chmod +x auto_install.sh
+./auto_install.sh
+```
 
 ### Dataset
 
