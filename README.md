@@ -272,20 +272,6 @@ chmod +x auto_install.sh
 # Execute the script to start the installation
 ./auto_install.sh
 ```
-<details>
-
-<summary>What `auto_install.sh` Does?</summary>
-
-The auto_install.sh script automates the installation process of Axolotl, including environment setup, dependencies, and compatibility checks. 
-This script is designed to significantly reduce setup time and complexity, making it an ideal option for both new and existing users.
-The script performs the following actions:
-
-- Checks and installs Conda if not present.
-- Installs the correct CUDA version within a Conda environment.
-- Ensures the installation of compatible PyTorch, TorchAudio, and TorchVision versions.
-- Installs all required dependencies for Axolotl.
-
-</details>
 
 ### Dataset
 
