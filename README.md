@@ -260,7 +260,7 @@ HF_TOKEN=xx sky launch axolotl.yaml --env HF_TOKEN
 HF_TOKEN=xx BUCKET=<unique-name> sky spot launch axolotl-spot.yaml --env HF_TOKEN --env BUCKET
 ```
 
-# Automated Installation Guide
+### Automated Installation Guide
 
 To use the automated installation script, follow these steps in your terminal:
 
@@ -273,7 +273,7 @@ chmod +x auto_install.sh
 ./auto_install.sh
 ```
 
-<summary> What `auto_install.sh` Does? </summary>
+<summary>What `auto_install.sh` Does?</summary>
 
 The auto_install.sh script automates the installation process of Axolotl, including environment setup, dependencies, and compatibility checks. 
 This script is designed to significantly reduce setup time and complexity, making it an ideal option for both new and existing users.
