@@ -260,7 +260,7 @@ HF_TOKEN=xx sky launch axolotl.yaml --env HF_TOKEN
 HF_TOKEN=xx BUCKET=<unique-name> sky spot launch axolotl-spot.yaml --env HF_TOKEN --env BUCKET
 ```
 
-### Automated Installation Guide
+#### Automated Installation Guide
 
 To use the automated installation script, follow these steps in your terminal:
 
@@ -285,7 +285,7 @@ The script performs the following actions:
 - Ensures the installation of compatible PyTorch, TorchAudio, and TorchVision versions.
 - Installs all required dependencies for Axolotl.
 
-</details>
+ </details>
 
 ### Dataset
 
