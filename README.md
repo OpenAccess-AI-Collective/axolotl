@@ -272,7 +272,8 @@ chmod +x auto_install.sh
 # Execute the script to start the installation
 ./auto_install.sh
 ```
-
+<details>
+  
 <summary>What `auto_install.sh` Does?</summary>
 
 The auto_install.sh script automates the installation process of Axolotl, including environment setup, dependencies, and compatibility checks. 
@@ -284,7 +285,7 @@ The script performs the following actions:
 - Ensures the installation of compatible PyTorch, TorchAudio, and TorchVision versions.
 - Installs all required dependencies for Axolotl.
 
-
+</details>
 
 ### Dataset
 
