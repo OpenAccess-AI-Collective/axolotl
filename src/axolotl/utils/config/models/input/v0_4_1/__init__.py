@@ -637,6 +637,8 @@ class AxolotlInputConfig(
     chat_template: Optional[ChatTemplate] = None
     default_system_message: Optional[str] = None
 
+    drop_long_sequences: bool = True
+
     # INTERNALS - document for now, generally not set externally
     is_preprocess: Optional[bool] = None
 
