@@ -976,7 +976,7 @@ class ModelLoader:
 
         self.apply_lora_patch(model)
 
-        if "cuda" in self.device:
+        if "cuda" in self.device.__str__():
             for _ in range(3):
                 gc.collect()
                 torch.cuda.empty_cache()
